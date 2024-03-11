@@ -7,7 +7,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-void checkFiles(const char *inFileName, const char *outFileName)
+// compares inFile and outFile paths and their hardlinks, exiting and printing an error if there are inconsistencies
+void compareFiles(const char *inFileName, const char *outFileName)
 {
     if (strcmp(inFileName, outFileName) == 0)
     {
@@ -89,38 +90,69 @@ void writeFile(const char *fileName, const char *text, size_t size)
     fclose(outFile);
 }
 
-// returns a pointer to the reversed string, so we need to use free() before exit;
+// returns a pointer within the string where the new is located line suffixed by '\n', and its size with 'len'
+char *nextLine(const char *str, size_t *len)
+{
+    // stores locally the idx to get the next line;
+    static size_t startIdx = 0;
+    static const char *prevStr = NULL;
+
+    // resets the idx if the string is a different one
+    if (prevStr != str)
+    {
+        startIdx = 0;
+        prevStr = str;
+    }
+
+    // if there is no more lines return NULL
+    if (startIdx >= strlen(str))
+    {
+        return NULL;
+    }
+
+    char *line = (char *)&str[startIdx];
+    *len = 0;
+
+    while (startIdx + *len < strlen(str) && str[startIdx + *len] != '\n')
+    {
+        (*len)++;
+    }
+
+    (*len)++;
+    startIdx += *len;
+    return line;
+}
+
+// returns a pointer an allocated reversed string, so we need to use free() before exit;
 char *reverse(const char *str, size_t size)
 {
-
     char *result = malloc(sizeof(char) * size);
-    memset(result, '\n', size);
 
-    char *line;
-    size_t offset = size;
-    bool lastLine = true;
+    char *line;            // pointer within the str to track lines
+    size_t offset = size;  // offset that starts at the end of the result to reverse the original string
+    bool firstLine = true; // the incoming firstLine will be the outcoming lastLine, so this is used to remove the new line character ('\n')
 
-    // each item points to a line in the original string, so no allocation is done
-    // so when the original string is freed, these items will be invalid pointers!!
-    // note: strtok replaces the delimiter with \0 (null character)
-    line = strtok((char *)str, "\n");
+    size_t lineLength;
+    line = nextLine(str, &lineLength);
 
     while (line)
     {
-        size_t lineLength = strlen(line);
-        offset -= lineLength + !lastLine; // if not last line add space for new line character (\n)
+        lineLength -= firstLine; // if first incoming line, exclude last character
+        offset -= lineLength;
         strncpy(result + offset, line, lineLength);
 
-        if (!lastLine)
+        if (firstLine)
         {
-            result[offset + lineLength] = '\n';
-        }
-        else
-        {
-            lastLine = false;
+            firstLine = false;
         }
 
-        line = strtok(NULL, "\n"); // NULL to continue with the same string
+        line = nextLine(str, &lineLength);
+    }
+
+    result[offset + (lineLength - 1)] = '\n'; // incoming lastLine didn't have newline character, so we add '\n' at the end of the first outcoming line
+    if (result[0] == '\0')
+    {
+        result[0] = '\n';
     }
 
     return result;
@@ -128,11 +160,20 @@ char *reverse(const char *str, size_t size)
 
 int main(int argc, char const *argv[])
 {
+
     if (argc > 3)
     {
         fprintf(stderr, "usage: reverse <input> <output>\n");
         return 1;
     }
+
+    fseek(stdin, 0, SEEK_END);
+    if (argc == 1 && ftell(stdin) <= 0)
+    {
+        fprintf(stderr, "usage: reverse <input> <output>\n");
+        return 1;
+    }
+    rewind(stdin);
 
     const char *inName = argc >= 2 ? argv[1] : NULL;
 
@@ -140,7 +181,7 @@ int main(int argc, char const *argv[])
 
     if (argc == 3)
     {
-        checkFiles(inName, outName);
+        compareFiles(inName, outName);
     }
 
     size_t size = 0;
