@@ -4,12 +4,9 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#define MAX_LINE_LENGTH 1024
-
-void print_error(const char *message)
-{
-    fprintf(stderr, "%s\n", message);
-}
+#define raise_error(message)          \
+    fprintf(stderr, "%s\n", message); \
+    exit(1)
 
 int main(int argc, char *argv[])
 {
@@ -17,25 +14,24 @@ int main(int argc, char *argv[])
     FILE *output_file;
     char *input_filename;
     char *output_filename;
-    char *lines[MAX_LINE_LENGTH];
+    char **lines;
+    size_t linesSize = 0;
+    size_t linesCapacity = 2;
     size_t len = 0;
-    ssize_t read;
 
     // check if too many command-line arguments
     if (argc < 1 || argc > 3)
     {
-        print_error("usage: reverse <input> <output>");
-        exit(1);
+        raise_error("usage: reverse <input> <output>");
     }
 
     input_filename = argv[1];
     output_filename = argc > 2 ? argv[2] : NULL;
 
-    // Check if inputname and outputname files
+    // Check if input and output files names are the same
     if (output_filename != NULL && strcmp(input_filename, output_filename) == 0)
     {
-        print_error("reverse: input and output file must differ");
-        exit(1);
+        raise_error("reverse: input and output file must differ");
     }
 
     // Check if input and output files are the same
@@ -46,8 +42,7 @@ int main(int argc, char *argv[])
         {
             if (input_stat.st_ino == output_stat.st_ino)
             {
-                print_error("reverse: input and output file must differ");
-                exit(1);
+                raise_error("reverse: input and output file must differ");
             }
         }
     }
@@ -74,7 +69,6 @@ int main(int argc, char *argv[])
         if (output_file == NULL)
         {
             fprintf(stderr, "reverse: cannot open file '%s'\n", output_filename);
-            fclose(input_file);
             exit(1);
         }
     }
@@ -84,36 +78,48 @@ int main(int argc, char *argv[])
     }
 
     // Allocate memory for each line
-    for (int i = 0; i < MAX_LINE_LENGTH; i++)
+    lines = (char **)malloc(linesCapacity * sizeof(char *));
+
+    if (lines == NULL)
     {
-        lines[i] = (char *)malloc(MAX_LINE_LENGTH * sizeof(char));
-        if (lines[i] == NULL)
-        {
-            print_error("reverse: malloc failed");
-            exit(1);
-        }
+        raise_error("reverse: malloc failed");
     }
 
-    // Read lines from input and store them in an array
-    int num_lines = 0;
-    while ((read = getline(&lines[num_lines], &len, input_file)) != -1)
+    // read lines
+    lines[0] = NULL;
+    while (getline(&lines[linesSize], &len, input_file) != -1)
     {
+        linesSize++;
 
-        num_lines++;
+        // resize vector if size exceeds capacity
+        if (linesSize == linesCapacity)
+        {
+            linesCapacity *= 2;
+            lines = (char **)realloc(lines, linesCapacity * sizeof(char *));
+            if (lines == NULL)
+            {
+                raise_error("reverse: realloc failed");
+            }
+        }
+        lines[linesSize] = NULL;
+        len = 0;
     }
 
     // Write lines from the array in reverse order to output
-    for (int i = num_lines - 1; i >= 0; i--)
+    for (int i = linesSize - 1; i >= 0; i--)
     {
         fprintf(output_file, "%s", lines[i]);
     }
 
     // Cleanup
-    for (int i = 0; i < MAX_LINE_LENGTH; i++)
+    for (int i = 0; i < linesSize; i++)
     {
-        free(lines[i]); // Liberar memoria asignada para cada línea
+        free(lines[i]); // free allocated memory space for each lines
     }
-    fclose(input_file);
+    free(lines); // free allocated space for vector of lines
+
+    if (input_file != stdin)
+        fclose(input_file);
     if (output_file != stdout)
         fclose(output_file);
 
